@@ -3,7 +3,7 @@
   "displayName": "Revit Preview",
   "description": "Xem trước model Revit (file .rvt đã export IFC) ngay trong VS Code: hiển thị 3D + thống kê phần tử",
   "version": "1.0.0",
-  "publisher": "chieund",
+  "publisher": "bumkom",
   "license": "MIT",
   "icon": "icon.png",
   "engines": {

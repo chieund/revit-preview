@@ -1,0 +1,13 @@
+src/**
+webview/**
+node_modules/**
+.vscode/**
+samples/**
+note/**
+esbuild.js
+tsconfig.json
+test-ifc.mjs
+**/*.ts
+**/*.map
+.gitignore
+README.md

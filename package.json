@@ -1,0 +1,60 @@
+{
+  "name": "revit-preview",
+  "displayName": "Revit Preview",
+  "description": "Xem trước model Revit (file .rvt đã export IFC) ngay trong VS Code: hiển thị 3D + thống kê phần tử",
+  "version": "1.0.0",
+  "publisher": "chieund",
+  "license": "MIT",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "revit",
+    "bim",
+    "ifc",
+    "3d",
+    "viewer",
+    "architecture",
+    "model"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chieund/revit-preview"
+  },
+  "main": "./dist/extension.js",
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package"
+  },
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "revit-preview.ifcViewer",
+        "displayName": "Revit Preview (IFC)",
+        "selector": [
+          {
+            "filenamePattern": "*.ifc"
+          }
+        ],
+        "priority": "default"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "@types/three": "^0.170.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0",
+    "three": "^0.170.0",
+    "web-ifc": "^0.0.68"
+  }
+}

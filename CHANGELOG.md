@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.0 — Revit Viewer
+
+- **Mở file `.rvt` trực tiếp** (không cần Revit): đọc bằng engine rvt-wasm (Apache-2.0, clean-room), chuyển sang IFC4 trong worker thread, hiển thị 3D như `.ifc`
+  - Metadata mọi bản Revit 2016–2027; geometry đầy đủ cho Revit 2023–2025 (2026/2027 experimental)
+  - Thanh tiến trình theo từng giai đoạn parse (schema, element-decode, saved-meshes...)
+  - File cũ hơn 2023: báo hướng dẫn dùng Export IFC của Revit
+- Đổi displayName thành "Revit Viewer" — đúng năng lực mới; identifier `revit-preview` giữ nguyên
+- 1.x: mở `.ifc` như trước (double-click, chọn phần tử, panel Elements, wireframe/grid/fit)
+
 ## 1.0.0 — Bản phát hành đầu tiên
 
 - Xem model 3D từ file IFC (export từ Revit) ngay trong VS Code: quay, zoom, pan

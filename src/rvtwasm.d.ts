@@ -2,7 +2,7 @@
 // Runtime files live at dist/rvtwasm/ (copied from vendor/rvt-wasm by esbuild.js);
 // this module is marked external to esbuild, so these import specifiers
 // resolve at runtime, not at bundle time.
-declare module "./rvtwasm/rvt.js" {
+declare module "*rvtwasm/rvt.js" {
   export interface FileMetadata {
     revit_version: number;
     build?: string;

@@ -4,6 +4,8 @@ node_modules/**
 .vscode/**
 samples/**
 note/**
+docs/**
+scripts/**
 esbuild.js
 tsconfig.json
 test-ifc.mjs

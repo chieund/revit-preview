@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<!-- Harness để chạy webview bundle của extension NGOÀI VS Code (giống cách
+     dwg-previewer làm) — dùng cho chụp screenshot marketplace.
+     Mô phỏng acquireVsCodeApi: khi webview xin model, tự gửi chunk từ file IFC. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1e1e1e; }
+  #root { width: 100%; height: 100%; }
+</style>
+</head>
+<body data-wasm-dir="/media/">
+  <div id="root"></div>
+  <script>
+    // ---- shim acquireVsCodeApi (mock extension host) ----
+    window.acquireVsCodeApi = () => {
+      const dispatch = (data) =>
+        window.dispatchEvent(new MessageEvent("message", { data }));
+      return {
+        postMessage(msg) {
+          if (msg.type === "requestModel") {
+            fetch("/samples/AC20-FZK-Haus.ifc")
+              .then((r) => r.arrayBuffer())
+              .then((buf) => {
+                const bytes = new Uint8Array(buf);
+                let bin = "";
+                const SLICE = 0x8000;
+                for (let i = 0; i < bytes.length; i += SLICE) {
+                  bin += String.fromCharCode.apply(null, bytes.subarray(i, i + SLICE));
+                }
+                const b64 = btoa(bin);
+                const CHUNK = 3000000;
+                const total = Math.ceil(b64.length / CHUNK);
+                dispatch({ type: "modelMeta", name: "AC20-FZK-Haus.ifc", byteSize: bytes.byteLength, chunks: total });
+                for (let i = 0; i < total; i++) {
+                  dispatch({ type: "modelChunk", data: b64.slice(i * CHUNK, (i + 1) * CHUNK) });
+                }
+                dispatch({ type: "modelDone" });
+              });
+          }
+        },
+        getState: () => ({}),
+        setState: () => {},
+        onDidReceiveMessage: () => ({ dispose() {} }),
+      };
+    };
+  </script>
+  <script src="/media/webview.js"></script>
+</body>
+</html>

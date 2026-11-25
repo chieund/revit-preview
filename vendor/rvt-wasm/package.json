@@ -1,0 +1,20 @@
+{
+  "name": "rvt-wasm",
+  "collaborators": [
+    "Griffin Long <151978260+DrunkOnJava@users.noreply.github.com>"
+  ],
+  "description": "WebAssembly bindings for the `rvt` crate, behind the browser viewer. Kept in a separate crate so `rvt` builds as a plain `rlib`: a `cdylib` crate type on the core library linked a shared library on every native build, test run and `cargo install` (C6).",
+  "version": "0.25.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DrunkOnJava/rvt-rs"
+  },
+  "files": [
+    "rvt_bg.wasm",
+    "rvt.js",
+    "rvt.d.ts"
+  ],
+  "main": "rvt.js",
+  "types": "rvt.d.ts"
+}

@@ -1,8 +1,8 @@
 {
   "name": "revit-preview",
   "displayName": "Revit Preview",
-  "description": "Xem trước model Revit (file .rvt đã export IFC) ngay trong VS Code: hiển thị 3D + thống kê phần tử",
-  "version": "1.0.0",
+  "description": "Preview Revit models in 3D inside VS Code. Open IFC files exported from Revit: orbit, zoom, filter element types, click any element to inspect its properties. Fully local, no Revit needed.",
+  "version": "1.0.1",
   "publisher": "bumkom",
   "license": "MIT",
   "icon": "icon.png",
@@ -17,6 +17,7 @@
     "revit",
     "bim",
     "ifc",
+    "rvt",
     "3d",
     "viewer",
     "architecture",
@@ -37,10 +38,20 @@
     "customEditors": [
       {
         "viewType": "revit-preview.ifcViewer",
-        "displayName": "Revit Preview (IFC)",
+        "displayName": "Revit Viewer (IFC)",
         "selector": [
           {
             "filenamePattern": "*.ifc"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "revit-preview.rvtViewer",
+        "displayName": "Revit Viewer (RVT)",
+        "selector": [
+          {
+            "filenamePattern": "*.rvt"
           }
         ],
         "priority": "default"
@@ -49,12 +60,13 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/vscode": "^1.90.0",
     "@types/three": "^0.170.0",
+    "@types/vscode": "^1.90.0",
     "@vscode/vsce": "^3.0.0",
     "esbuild": "^0.24.0",
-    "typescript": "^5.6.0",
+    "puppeteer": "^25.19.0",
     "three": "^0.170.0",
+    "typescript": "^5.6.0",
     "web-ifc": "^0.0.68"
   }
 }

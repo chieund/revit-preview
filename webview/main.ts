@@ -18,10 +18,10 @@ document.head.appendChild(styleEl);
 const root = document.getElementById("root") as HTMLDivElement;
 root.innerHTML = `
   <div class="ifc-toolbar">
-    <button class="ifc-tool-button" id="btn-fit" title="Đưa model về vừa khung nhìn">⌂ Fit</button>
-    <button class="ifc-tool-button" id="btn-wireframe" title="Hiện khung dây (wireframe)">☰ Wireframe</button>
-    <button class="ifc-tool-button ifc-active" id="btn-grid" title="Hiện/ẩn lưới nền"># Grid</button>
-    <button class="ifc-tool-button" id="btn-elements" title="Danh sách phần tử theo loại">▦ Phần tử</button>
+    <button class="ifc-tool-button" id="btn-fit" title="Fit model to view">⌂ Fit</button>
+    <button class="ifc-tool-button" id="btn-wireframe" title="Toggle wireframe">☰ Wireframe</button>
+    <button class="ifc-tool-button ifc-active" id="btn-grid" title="Toggle grid"># Grid</button>
+    <button class="ifc-tool-button" id="btn-elements" title="Element list by type">▦ Elements</button>
     <div class="ifc-banner" hidden>
       <span class="ifc-banner-text"></span>
       <button class="ifc-banner-dismiss" title="Đóng">✕</button>
@@ -32,33 +32,33 @@ root.innerHTML = `
       <div class="ifc-inspector" hidden>
         <div class="ifc-inspector-header">
           <span class="ifc-inspector-title"></span>
-          <button class="ifc-inspector-close" title="Đóng">✕</button>
+          <button class="ifc-inspector-close" title="Close">✕</button>
         </div>
         <table class="ifc-inspector-table"></table>
       </div>
       <div class="ifc-empty" hidden>
-        <div class="ifc-empty-title">Không thấy geometry nào</div>
-        <div class="ifc-empty-detail">File IFC này có thể được export ở chế độ chỉ cấu trúc (schema only).
-        Hãy export lại trong Revit với MVD "IFC 4 Design Transfer View" để giữ hình học.</div>
+        <div class="ifc-empty-title">No geometry found</div>
+        <div class="ifc-empty-detail">This IFC file may have been exported schema-only.
+        Re-export from Revit with the "IFC 4 Design Transfer View" MVD to keep the 3D geometry.</div>
       </div>
     </div>
     <div class="ifc-sidebar" hidden>
       <div class="ifc-elements">
-        <div class="ifc-elements-header"><span class="ifc-elements-title">Phần tử</span></div>
-        <input class="ifc-elements-filter" placeholder="Lọc loại phần tử…">
+        <div class="ifc-elements-header"><span class="ifc-elements-title">Elements</span></div>
+        <input class="ifc-elements-filter" placeholder="Filter element types…">
         <div class="ifc-elements-body"></div>
       </div>
     </div>
   </div>
   <div class="ifc-statusbar">
-    <span class="ifc-status-hint">Chuột trái: quay · Lăn: zoom · Chuột phải: pan · Click: chọn phần tử</span>
+    <span class="ifc-status-hint">Left-drag: orbit · Scroll: zoom · Right-drag: pan · Click: select element</span>
     <span class="ifc-status-spacer"></span>
     <span class="ifc-status-selection"></span>
     <span class="ifc-status-info"></span>
   </div>
   <div class="ifc-loading">
     <div class="ifc-spinner"></div>
-    <span class="ifc-loading-text">Đang tải model…</span>
+    <span class="ifc-loading-text">Loading model…</span>
   </div>
 `;
 
@@ -90,12 +90,12 @@ banner.querySelector(".ifc-banner-dismiss")?.addEventListener("click", () => {
 // Bắt mọi lỗi rơi ngoài try/catch để không bao giờ kẹt ở màn loading im lặng
 window.addEventListener("error", (e) => {
   loading.hidden = true;
-  showBanner(`Lỗi webview: ${e.message}`);
+  showBanner(`Webview error: ${e.message}`);
 });
 window.addEventListener("unhandledrejection", (e) => {
   loading.hidden = true;
   const reason = e.reason instanceof Error ? e.reason.message : String(e.reason);
-  showBanner(`Lỗi webview: ${reason}`);
+  showBanner(`Webview error: ${reason}`);
 });
 
 // ---------- three.js scene ----------
@@ -155,7 +155,17 @@ window.addEventListener("message", async (event) => {
     case "modelMeta": {
       expected = msg.chunks;
       received = 0;
-  loadingText.textContent = `Đang tải ${msg.name}… (extension v${extVersion})`;
+      loadingText.textContent = `Loading ${msg.name}… (extension v${extVersion})`;
+      break;
+    }
+    case "convertProgress": {
+      const pct = msg.total ? ` (${Math.round((msg.done / msg.total) * 100)}%)` : "";
+      loadingText.textContent = `Converting Revit model: ${msg.stage}${pct}`;
+      break;
+    }
+    case "convertError": {
+      loading.hidden = true;
+      showBanner(`Cannot read this .rvt: ${msg.message}`);
       break;
     }
     case "modelChunk": {
@@ -166,14 +176,14 @@ window.addEventListener("message", async (event) => {
     }
     case "modelDone": {
       if (!modelBuffer) return;
-      loadingText.textContent = "Đang parse IFC (lần đầu có thể mất vài giây)…";
+      loadingText.textContent = "Parsing IFC (first run may take a few seconds)…";
       // nhường UI thở 1 frame trước khi chạy WASM
       await new Promise((r) => requestAnimationFrame(r));
       try {
         await buildModel(modelBuffer);
       } catch (e: unknown) {
         loading.hidden = true;
-        showBanner(`Lỗi parse IFC: ${e instanceof Error ? e.message : String(e)}`);
+        showBanner(`IFC parse error: ${e instanceof Error ? e.message : String(e)}`);
         console.error(e);
       }
       break;
@@ -204,38 +214,38 @@ const nodesByElement = new Map<number, THREE.Mesh[]>();
 const modelGroup = new THREE.Group();
 scene.add(modelGroup);
 
-/** Tên hiển thị tiếng Việt cho các loại phần tử phổ biến. */
-const TYPE_LABELS_VI: Record<string, string> = {
-  WALL: "Tường",
-  WALLSTANDARDCASE: "Tường (chuẩn)",
-  SLAB: "Sàn",
-  COLUMN: "Cột",
-  BEAM: "Dầm",
-  DOOR: "Cửa đi",
-  WINDOW: "Cửa sổ",
-  STAIR: "Cầu thang",
-  RAILING: "Lan can",
-  ROOF: "Mái",
-  COVERING: "Lớp phủ",
-  SITE: "Bãi đất",
-  BUILDING: "Tòa nhà",
-  STAIRFLIGHT: "Bậc thang",
-  CURTAINWALL: "Tường kính",
-  PLATE: "Tấm",
-  MEMBER: "Thanh kết cấu",
-  FOOTING: "Móng",
-  PILE: "Cọc",
-  SPACE: "Không gian",
-  FURNISHINGELEMENT: "Nội thất",
-  SANITARYTERMINAL: "Thiết bị vệ sinh",
+/** English labels for common IFC element types. */
+const TYPE_LABELS_EN: Record<string, string> = {
+  WALL: "Wall",
+  WALLSTANDARDCASE: "Wall (standard)",
+  SLAB: "Slab",
+  COLUMN: "Column",
+  BEAM: "Beam",
+  DOOR: "Door",
+  WINDOW: "Window",
+  STAIR: "Stair",
+  RAILING: "Railing",
+  ROOF: "Roof",
+  COVERING: "Covering",
+  SITE: "Site",
+  BUILDING: "Building",
+  STAIRFLIGHT: "Stair flight",
+  CURTAINWALL: "Curtain wall",
+  PLATE: "Plate",
+  MEMBER: "Structural member",
+  FOOTING: "Footing",
+  PILE: "Pile",
+  SPACE: "Space",
+  FURNISHINGELEMENT: "Furniture",
+  SANITARYTERMINAL: "Sanitary terminal",
 };
 
-/** IFCWALLSTANDARDCASE -> "Tường (chuẩn)" / "Member" -> "Member". */
+/** IFCWALLSTANDARDCASE -> "Wall (standard)" / "Member" -> "Structural member". */
 function prettyType(typeCode: number, ifcAPI: WebIFC.IfcAPI): string {
   const raw = ifcAPI.GetNameFromTypeCode(typeCode) ?? `Type ${typeCode}`;
   const bare = raw.replace(/^IFC/i, "");
   const spaced = bare.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
-  return TYPE_LABELS_VI[bare.toUpperCase()] ?? (spaced || raw);
+  return TYPE_LABELS_EN[bare.toUpperCase()] ?? (spaced || raw);
 }
 
 function groupOf(typeCode: number, ifcAPI: WebIFC.IfcAPI): TypeGroup {
@@ -351,7 +361,7 @@ async function buildModel(buffer: Uint8Array): Promise<void> {
   fitCamera();
   loading.hidden = true;
   updateStatusBar();
-  vscode.postMessage({ type: "status", text: `Revit Preview: ${totalMeshCount} mesh, ${totalTriangles.toLocaleString()} tam giác` });
+  vscode.postMessage({ type: "status", text: `Revit Preview: ${totalMeshCount} meshes, ${totalTriangles.toLocaleString()} triangles` });
 }
 
 // ---------- camera ----------
@@ -385,7 +395,7 @@ function buildElementsPanel(): void {
 
     const eye = document.createElement("button");
     eye.className = "ifc-eye on";
-    eye.title = "Hiện/ẩn nhóm này";
+    eye.title = "Show/hide this type";
     eye.textContent = "◉";
 
     const swatch = SWATCH();
@@ -402,7 +412,7 @@ function buildElementsPanel(): void {
 
     const isolate = document.createElement("button");
     isolate.className = "ifc-isolate";
-    isolate.title = "Chỉ hiện nhóm này";
+    isolate.title = "Isolate this type";
     isolate.textContent = "⌖";
 
     row.append(eye, swatch, name, count, isolate);
@@ -450,7 +460,7 @@ elementsFilter.addEventListener("input", () => {
     if (!nomatch) {
       nomatch = document.createElement("div");
       nomatch.className = "ifc-elements-nomatch";
-      nomatch.textContent = "Không có loại nào khớp";
+      nomatch.textContent = "No matching type";
       elementsBody.appendChild(nomatch);
     }
   } else {
@@ -489,7 +499,7 @@ function selectElement(expressID: number, ifcProps: () => Record<string, string>
   selectedExpressID = expressID;
 
   const props = ifcProps();
-  inspectorTitle.textContent = props["Loại"] ?? "Phần tử";
+  inspectorTitle.textContent = props["Type"] ?? "Element";
   inspectorTable.textContent = "";
   for (const [label, value] of Object.entries(props)) {
     const tr = document.createElement("tr");
@@ -502,7 +512,7 @@ function selectElement(expressID: number, ifcProps: () => Record<string, string>
     inspectorTable.appendChild(tr);
   }
   inspector.hidden = false;
-  statusSelection.textContent = `Đã chọn: ${props["Loại"] ?? "?"} #${expressID}`;
+  statusSelection.textContent = `Selected: ${props["Type"] ?? "?"} #${expressID}`;
 }
 
 // raycaster trên pointer click (không tính drag)
@@ -530,7 +540,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   }
   const expressID = (hits[0].object as THREE.Mesh).userData.expressID as number;
   // ifcAPI đã Dispose sau parse — property đọc từ snapshot đã lưu lúc parse
-  selectElement(expressID, () => propsSnapshot.get(expressID) ?? { "Loại": "?" });
+  selectElement(expressID, () => propsSnapshot.get(expressID) ?? { "Type": "?" });
 });
 
 /** Property rút gọn của từng phần tử, lưu lúc parse vì model đóng sau đó. */
@@ -539,21 +549,21 @@ const propsSnapshot = new Map<number, Record<string, string>>();
 function snapshotProps(modelID: number, ifcAPI: WebIFC.IfcAPI, expressID: number): void {
   try {
     const line = ifcAPI.GetLine(modelID, expressID);
-    const props: Record<string, string> = {
-      "Loại": prettyType(Number(ifcAPI.GetLineType(modelID, expressID)) || 0, ifcAPI),
-    };
-    const val = (v: unknown): string | undefined => {
-      if (v === null || v === undefined) return undefined;
-      if (typeof v === "object" && v !== null && "value" in (v as Record<string, unknown>)) {
-        const inner = (v as { value: unknown }).value;
-        return inner === null || inner === undefined ? undefined : String(inner);
-      }
-      return typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? String(v) : undefined;
-    };
-    const globalId = val(line.GlobalId);
-    if (globalId) props["GlobalId"] = globalId;
-    const name = val(line.Name);
-    if (name) props["Tên"] = name;
+  const props: Record<string, string> = {
+    "Type": prettyType(Number(ifcAPI.GetLineType(modelID, expressID)) || 0, ifcAPI),
+  };
+  const val = (v: unknown): string | undefined => {
+    if (v === null || v === undefined) return undefined;
+    if (typeof v === "object" && v !== null && "value" in (v as Record<string, unknown>)) {
+      const inner = (v as { value: unknown }).value;
+      return inner === null || inner === undefined ? undefined : String(inner);
+    }
+    return typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? String(v) : undefined;
+  };
+  const globalId = val(line.GlobalId);
+  if (globalId) props["GlobalId"] = globalId;
+  const name = val(line.Name);
+  if (name) props["Name"] = name;
     const tag = val(line.Tag);
     if (tag) props["Tag"] = tag;
     // vài property primitive khác nếu có
@@ -607,7 +617,7 @@ inspectorClose.addEventListener("click", clearSelection);
 // ---------- statusbar ----------
 function updateStatusBar(): void {
   const groups = typeGroups.size;
-  statusInfo.textContent = `${projectName} · ${groups} loại · ${totalMeshCount} mesh · ${totalTriangles.toLocaleString()} △`;
+  statusInfo.textContent = `${projectName} · ${groups} types · ${totalMeshCount} meshes · ${totalTriangles.toLocaleString()} △`;
 }
 
 // lưu props ngay sau parse: nối collectProps vào buildModel qua hook

@@ -2,24 +2,23 @@ import * as vscode from "vscode";
 import { IfcEditorProvider } from "./ifcEditorProvider";
 
 export function activate(context: vscode.ExtensionContext): void {
+  const common = {
+    supportsMultipleEditorsPerDocument: false,
+    webviewOptions: { enableFindWidget: false },
+  };
+
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
-      IfcEditorProvider.viewType,
-      new IfcEditorProvider(context),
-      {
-        supportsMultipleEditorsPerDocument: false,
-        webviewOptions: { enableFindWidget: false },
-      }
+      IfcEditorProvider.viewTypeIfc,
+      new IfcEditorProvider(context, "ifc"),
+      common
+    ),
+    vscode.window.registerCustomEditorProvider(
+      IfcEditorProvider.viewTypeRvt,
+      new IfcEditorProvider(context, "rvt"),
+      common
     )
   );
-
-  vscode.commands.registerCommand("revit-preview.openIfcViewer", async () => {
-    const active = vscode.window.activeTextEditor?.document.uri ?? vscode.window.activeTextEditor?.document.uri;
-    const picked = active ?? (await vscode.window.showOpenDialog({ filters: { "IFC": ["ifc"] } }))?.[0];
-    if (picked) {
-      await vscode.commands.executeCommand("vscode.openWith", picked, IfcEditorProvider.viewType);
-    }
-  });
 }
 
 export function deactivate(): void {

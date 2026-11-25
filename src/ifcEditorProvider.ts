@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
+import { convertRvtToIfc } from "./rvtConvert";
 
-/** Document chỉ đọc: giữ nội dung file IFC dưới dạng bytes. */
+/** Document chỉ đọc: giữ nội dung file dưới dạng bytes (IFC hoặc RVT). */
 export class IfcDocument implements vscode.CustomDocument {
   constructor(readonly uri: vscode.Uri, readonly bytes: Uint8Array) {}
   dispose(): void {
@@ -8,10 +9,19 @@ export class IfcDocument implements vscode.CustomDocument {
   }
 }
 
+/**
+ * CustomReadonlyEditorProvider cho cả hai loại file:
+ *  - "ifc": gửi thẳng bytes vào webview (web-ifc render)
+ *  - "rvt": chuyển .rvt → IFC4 bằng rvt-wasm (worker thread), rồi gửi như .ifc
+ */
 export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<IfcDocument> {
-  public static readonly viewType = "revit-preview.ifcViewer";
+  public static readonly viewTypeIfc = "revit-preview.ifcViewer";
+  public static readonly viewTypeRvt = "revit-preview.rvtViewer";
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly kind: "ifc" | "rvt"
+  ) {}
 
   async openCustomDocument(uri: vscode.Uri): Promise<IfcDocument> {
     const bytes = await vscode.workspace.fs.readFile(uri);
@@ -33,19 +43,41 @@ export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<If
     // làm của dwg-previewer.
     webviewPanel.webview.html = this.getHtml(webviewPanel.webview);
 
+    let ifcBytes: Uint8Array = document.bytes;
+
+    // .rvt: chuyển sang IFC4 trong worker thread trước khi gửi đi
+    if (this.kind === "rvt") {
+      try {
+        const result = await convertRvtToIfc(
+          document.bytes,
+          "geometry",
+          (p) => {
+            void webviewPanel.webview.postMessage({ type: "convertProgress", ...p });
+          }
+        );
+        ifcBytes = Buffer.from(result.step, "utf8");
+      } catch (e: unknown) {
+        await webviewPanel.webview.postMessage({
+          type: "convertError",
+          message: e instanceof Error ? e.message : String(e),
+        });
+        return;
+      }
+    }
+
     // Webview yêu cầu file -> gửi bytes theo chunk (tránh vượt giới hạn 1 message)
     webviewPanel.webview.onDidReceiveMessage(async (msg) => {
       if (msg.type !== "requestModel") return;
 
       const fileName = document.uri.path.split("/").pop() ?? "model.ifc";
-      const b64 = Buffer.from(document.bytes).toString("base64");
+      const b64 = Buffer.from(ifcBytes).toString("base64");
       const CHUNK = 3_000_000; // ký tự base64 mỗi chunk (~2.2 MB nhị phân)
       const total = Math.ceil(b64.length / CHUNK);
 
       await webviewPanel.webview.postMessage({
         type: "modelMeta",
         name: fileName,
-        byteSize: document.bytes.byteLength,
+        byteSize: ifcBytes.byteLength,
         chunks: total,
       });
 

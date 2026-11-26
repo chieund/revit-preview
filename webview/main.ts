@@ -141,6 +141,7 @@ const wasmDir = (document.body as HTMLElement).dataset.wasmDir ?? "";
 let modelBuffer: Uint8Array | null = null;
 let received = 0;
 let expected = 0;
+let writeOffset = 0;
 
 const base64ToBytes = (b64: string): Uint8Array => {
   const bin = atob(b64);
@@ -155,6 +156,9 @@ window.addEventListener("message", async (event) => {
     case "modelMeta": {
       expected = msg.chunks;
       received = 0;
+      // cấp phát một lần theo kích thước thật, tránh concat O(n²) mỗi chunk
+      modelBuffer = new Uint8Array(msg.byteSize);
+      writeOffset = 0;
       loadingText.textContent = `Loading ${msg.name}… (extension v${extVersion})`;
       break;
     }
@@ -169,8 +173,10 @@ window.addEventListener("message", async (event) => {
       break;
     }
     case "modelChunk": {
+      if (!modelBuffer) break;
       const bytes = base64ToBytes(msg.data);
-      modelBuffer = modelBuffer ? concat(modelBuffer, bytes) : bytes;
+      modelBuffer.set(bytes, writeOffset);
+      writeOffset += bytes.length;
       received++;
       break;
     }
@@ -190,13 +196,6 @@ window.addEventListener("message", async (event) => {
     }
   }
 });
-
-function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
-}
 
 // ---------- parse IFC + dựng scene ----------
 interface TypeGroup {

@@ -43,31 +43,31 @@ export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<If
     // làm của dwg-previewer.
     webviewPanel.webview.html = this.getHtml(webviewPanel.webview);
 
-    let ifcBytes: Uint8Array = document.bytes;
-
-    // .rvt: chuyển sang IFC4 trong worker thread trước khi gửi đi
-    if (this.kind === "rvt") {
-      try {
-        const result = await convertRvtToIfc(
-          document.bytes,
-          "geometry",
-          (p) => {
+    // .rvt: khởi động chuyển đổi sang IFC4 (worker thread) ngay, nhưng KHÔNG
+    // chờ ở đây — listener phải đăng ký trước, vì webview gửi "requestModel"
+    // ngay khi tải xong, còn chuyển đổi có thể mất hàng chục giây.
+    // Lỗi được giữ lại và chỉ gửi khi webview đã sẵn sàng (lúc "requestModel"),
+    // vì lỗi phiên bản cũ có thể xảy ra trước khi webview kịp lắng nghe.
+    const ifcBytesPromise: Promise<{ bytes: Uint8Array } | { error: string }> =
+      this.kind === "rvt"
+        ? convertRvtToIfc(document.bytes, "geometry", (p) => {
             void webviewPanel.webview.postMessage({ type: "convertProgress", ...p });
-          }
-        );
-        ifcBytes = Buffer.from(result.step, "utf8");
-      } catch (e: unknown) {
-        await webviewPanel.webview.postMessage({
-          type: "convertError",
-          message: e instanceof Error ? e.message : String(e),
-        });
-        return;
-      }
-    }
+          }).then(
+            (result) => ({ bytes: Buffer.from(result.step, "utf8") }),
+            (e: unknown) => ({ error: e instanceof Error ? e.message : String(e) })
+          )
+        : Promise.resolve({ bytes: document.bytes });
 
     // Webview yêu cầu file -> gửi bytes theo chunk (tránh vượt giới hạn 1 message)
     webviewPanel.webview.onDidReceiveMessage(async (msg) => {
       if (msg.type !== "requestModel") return;
+
+      const converted = await ifcBytesPromise;
+      if ("error" in converted) {
+        await webviewPanel.webview.postMessage({ type: "convertError", message: converted.error });
+        return;
+      }
+      const ifcBytes = converted.bytes;
 
       const fileName = document.uri.path.split("/").pop() ?? "model.ifc";
       const b64 = Buffer.from(ifcBytes).toString("base64");

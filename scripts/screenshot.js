@@ -1,5 +1,5 @@
-// Chụp screenshot marketplace: chạy harness.html (webview thật + model IFC thật)
-// trong headless Chrome với WebGL software rendering.
+// Marketplace screenshots: runs harness.html (real webview + real IFC model)
+// in headless Chrome with software WebGL rendering.
 const puppeteer = require("puppeteer");
 const http = require("http");
 const fs = require("fs");
@@ -44,14 +44,14 @@ async function main() {
 
   await page.goto(`http://localhost:${PORT}/`, { waitUntil: "domcontentloaded" });
 
-  // chờ parse xong (overlay ẩn) — timeout dài cho lần init WASM đầu
+  // wait for parsing to finish (overlay hidden) — long timeout for first WASM init
   await page.waitForFunction(
     () => { const el = document.querySelector(".ifc-loading"); return el && el.hidden === true; },
     { timeout: 180000 }
   );
   await sleep(2500);
 
-  // zoom sát model cho ảnh marketplace (scroll-wheel qua OrbitControls)
+  // zoom in for the marketplace shot (scroll wheel via OrbitControls)
   const cbox = await (await page.$("canvas")).boundingBox();
   await page.mouse.move(cbox.x + cbox.width * 0.5, cbox.y + cbox.height * 0.55);
   for (let i = 0; i < 6; i++) {
@@ -62,17 +62,17 @@ async function main() {
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
-  // 1) 3D view chính
+  // 1) main 3D view
   await page.screenshot({ path: path.join(OUT_DIR, "viewer-3d.png") });
   console.log("OK viewer-3d.png");
 
-  // 2) Sidebar Elements mở
+  // 2) Elements sidebar open
   await page.click("#btn-elements");
   await sleep(500);
   await page.screenshot({ path: path.join(OUT_DIR, "viewer-elements.png") });
   console.log("OK viewer-elements.png");
 
-  // 3) Chọn phần tử → inspector. Thử vài điểm click cho tới khi inspector hiện
+  // 3) Select an element → inspector. Try a few points until the inspector shows
   const canvas = await page.$("canvas");
   const box = await canvas.boundingBox();
   const points = [
@@ -91,7 +91,7 @@ async function main() {
     await page.screenshot({ path: path.join(OUT_DIR, "viewer-inspector.png") });
     console.log("OK viewer-inspector.png");
   } else {
-    console.log("WARN: không chọn được phần tử nào — bỏ qua ảnh inspector");
+    console.log("WARN: no element could be selected — skipping the inspector shot");
   }
 
   await browser.close();

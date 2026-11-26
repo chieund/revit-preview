@@ -1,6 +1,6 @@
-// Code chạy BÊN TRONG webview (môi trường browser): three.js + web-ifc
-// Bố cục UI được dựng bằng DOM API theo phong cách của dwg-previewer:
-// toolbar trên → workspace (canvas + sidebar) → statusbar dưới.
+// Code that runs INSIDE the webview (browser environment): three.js + web-ifc.
+// The UI is built with the DOM API:
+// toolbar on top → workspace (canvas + sidebar) → status bar at the bottom.
 import { WEBVIEW_STYLES } from "./styles";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -14,7 +14,7 @@ const styleEl = document.createElement("style");
 styleEl.textContent = WEBVIEW_STYLES;
 document.head.appendChild(styleEl);
 
-// ---------- dựng khung UI ----------
+// ---------- build the UI shell ----------
 const root = document.getElementById("root") as HTMLDivElement;
 root.innerHTML = `
   <div class="ifc-toolbar">
@@ -87,7 +87,7 @@ banner.querySelector(".ifc-banner-dismiss")?.addEventListener("click", () => {
   banner.hidden = true;
 });
 
-// Bắt mọi lỗi rơi ngoài try/catch để không bao giờ kẹt ở màn loading im lặng
+// Catch anything that escapes try/catch so we never hang silently on the loading screen
 window.addEventListener("error", (e) => {
   loading.hidden = true;
   showBanner(`Webview error: ${e.message}`);
@@ -136,7 +136,14 @@ const animate = (): void => {
 };
 animate();
 
-// ---------- nhận file IFC từ extension host ----------
+// render stats for scripts/smoke.js (performance checks; no effect on the UI)
+(window as unknown as { __viewerStats: () => object }).__viewerStats = () => ({
+  drawCalls: renderer.info.render.calls,
+  sceneMeshes: modelGroup.children.length,
+  materials: materialCache.size,
+});
+
+// ---------- receive the IFC file from the extension host ----------
 const wasmDir = (document.body as HTMLElement).dataset.wasmDir ?? "";
 let modelBuffer: Uint8Array | null = null;
 let received = 0;
@@ -150,13 +157,25 @@ const base64ToBytes = (b64: string): Uint8Array => {
   return out;
 };
 
+/**
+ * Model chunks must arrive as binary. Anything else (e.g. a Node Buffer that
+ * VS Code serialized via toJSON into {type:"Buffer",data:[...]}) is a host bug:
+ * fail loudly instead of silently falling back to a slow path.
+ */
+function toBytes(data: unknown): Uint8Array {
+  if (data instanceof Uint8Array) return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  throw new Error("Model chunk is not binary data (extension host sent the wrong type)");
+}
+
 window.addEventListener("message", async (event) => {
   const msg = event.data;
   switch (msg.type) {
     case "modelMeta": {
       expected = msg.chunks;
       received = 0;
-      // cấp phát một lần theo kích thước thật, tránh concat O(n²) mỗi chunk
+      // allocate once at the real size — avoids O(n²) concat per chunk
       modelBuffer = new Uint8Array(msg.byteSize);
       writeOffset = 0;
       loadingText.textContent = `Loading ${msg.name}… (extension v${extVersion})`;
@@ -174,9 +193,9 @@ window.addEventListener("message", async (event) => {
     }
     case "modelChunk": {
       if (!modelBuffer) break;
-      // extension host gửi Uint8Array; vẫn nhận base64 string (định dạng cũ)
+      // the host sends Uint8Array; base64 strings are still accepted (old format)
       const bytes: Uint8Array =
-        typeof msg.data === "string" ? base64ToBytes(msg.data) : new Uint8Array(msg.data);
+        typeof msg.data === "string" ? base64ToBytes(msg.data) : toBytes(msg.data);
       modelBuffer.set(bytes, writeOffset);
       writeOffset += bytes.length;
       received++;
@@ -184,8 +203,17 @@ window.addEventListener("message", async (event) => {
     }
     case "modelDone": {
       if (!modelBuffer) return;
+      // missing bytes = transfer bug; report it instead of letting web-ifc parse garbage
+      if (writeOffset !== modelBuffer.byteLength) {
+        loading.hidden = true;
+        showBanner(
+          `Model transfer incomplete: received ${writeOffset.toLocaleString()} of ` +
+            `${modelBuffer.byteLength.toLocaleString()} bytes`
+        );
+        return;
+      }
       loadingText.textContent = "Parsing IFC (first run may take a few seconds)…";
-      // nhường UI thở 1 frame trước khi chạy WASM
+      // let the UI paint one frame before the WASM work starts
       await new Promise((r) => requestAnimationFrame(r));
       try {
         await buildModel(modelBuffer);
@@ -199,10 +227,10 @@ window.addEventListener("message", async (event) => {
   }
 });
 
-// ---------- parse IFC + dựng scene ----------
+// ---------- parse IFC + build the scene ----------
 /**
- * Dùng chung material theo màu + opacity: model vài nghìn phần tử chỉ có vài
- * chục màu, nên tránh tạo hàng nghìn material (shader state, bộ nhớ GPU).
+ * Share materials by color + opacity: a model with thousands of elements has only
+ * a few dozen colors, so avoid creating thousands of materials (shader state, GPU memory).
  */
 const materialCache = new Map<string, THREE.MeshLambertMaterial>();
 function materialFor(r: number, g: number, b: number, a: number): THREE.MeshLambertMaterial {
@@ -292,15 +320,15 @@ let totalTriangles = 0;
 async function buildModel(buffer: Uint8Array): Promise<void> {
   const ifcAPI = new WebIFC.IfcAPI();
   ifcAPI.SetWasmPath(wasmDir, true);
-  // forceSingleThread=true: webview không đảm bảo crossOriginIsolated, nhánh
-  // multithread của web-ifc sẽ kẹt vĩnh viễn khi pthread không tạo được.
+  // forceSingleThread=true: the webview is not guaranteed crossOriginIsolated, and
+  // web-ifc's multithreaded path hangs forever when pthreads cannot be created.
   await ifcAPI.Init(undefined, true);
 
   const modelID = ifcAPI.OpenModel(buffer, {
-    COORDINATE_TO_ORIGIN: true, // đặt model về gốc tọa độ
+    COORDINATE_TO_ORIGIN: true, // move the model to the origin
   });
 
-  // --- tên dự án ---
+  // --- project name ---
   try {
     const projIds = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCPROJECT);
     if (projIds.size() > 0) {
@@ -308,10 +336,10 @@ async function buildModel(buffer: Uint8Array): Promise<void> {
       projectName = proj.Name?.value ?? proj.LongName?.value ?? "(unnamed project)";
     }
   } catch {
-    // bỏ qua
+    // ignore
   }
 
-  // --- thu thập geometry, nhóm theo loại phần tử ---
+  // --- collect geometry, grouped by element type ---
   ifcAPI.StreamAllMeshes(modelID, (flatMesh) => {
     const typeCode = Number(ifcAPI.GetLineType(modelID, flatMesh.expressID)) || 0;
     const group = groupOf(typeCode, ifcAPI);
@@ -324,8 +352,8 @@ async function buildModel(buffer: Uint8Array): Promise<void> {
       const verts = ifcAPI.GetVertexArray(geom.GetVertexData(), geom.GetVertexDataSize());
       const idx = ifcAPI.GetIndexArray(geom.GetIndexData(), geom.GetIndexDataSize());
 
-      // vertex buffer của web-ifc: [x,y,z,nx,ny,nz] * n — dùng luôn normal
-      // có sẵn (giữ cạnh sắc), không computeVertexNormals() lại
+      // web-ifc vertex buffer: [x,y,z,nx,ny,nz] * n — use its normals as-is
+      // (keeps hard edges) instead of computeVertexNormals()
       const interleaved = new THREE.InterleavedBuffer(new Float32Array(verts), 6);
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.InterleavedBufferAttribute(interleaved, 3, 0));
@@ -353,13 +381,13 @@ async function buildModel(buffer: Uint8Array): Promise<void> {
     totalMeshCount++;
   });
 
-  // lưu property rút gọn của từng phần tử trước khi đóng model
+  // snapshot each element's basic properties before the model is closed
   collectProps(modelID, ifcAPI);
 
   ifcAPI.CloseModel(modelID);
   ifcAPI.Dispose();
 
-  // --- trạng thái hiển thị ---
+  // --- display state ---
   if (totalMeshCount === 0) {
     loading.hidden = true;
     emptyState.hidden = false;
@@ -391,7 +419,7 @@ function fitCamera(): void {
   grid.position.set(center.x, box.min.y, center.z);
 }
 
-// ---------- panel Phần tử (sidebar) ----------
+// ---------- Elements panel (sidebar) ----------
 const SWATCH = () => document.createElement("span");
 
 function buildElementsPanel(): void {
@@ -478,7 +506,7 @@ elementsFilter.addEventListener("input", () => {
   }
 });
 
-// ---------- chọn phần tử (picking + inspector) ----------
+// ---------- element selection (picking + inspector) ----------
 const highlightMaterial = new THREE.MeshBasicMaterial({
   color: 0xffcc00,
   transparent: true,
@@ -486,7 +514,7 @@ const highlightMaterial = new THREE.MeshBasicMaterial({
   side: THREE.DoubleSide,
 });
 let selectedExpressID: number | null = null;
-/** material gốc của các node đang được highlight, để trả lại khi bỏ chọn. */
+/** Original material of each highlighted node, restored on deselect. */
 const highlightedOriginals = new Map<THREE.Mesh, THREE.Material>();
 
 function clearSelection(): void {
@@ -525,7 +553,7 @@ function selectElement(expressID: number, ifcProps: () => Record<string, string>
   statusSelection.textContent = `Selected: ${props["Type"] ?? "?"} #${expressID}`;
 }
 
-// raycaster trên pointer click (không tính drag)
+// raycast on pointer click (ignoring drags)
 let downPos: { x: number; y: number } | null = null;
 renderer.domElement.addEventListener("pointerdown", (e) => {
   if (e.button === 0) downPos = { x: e.clientX, y: e.clientY };
@@ -534,7 +562,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   if (e.button !== 0 || !downPos) return;
   const moved = Math.abs(e.clientX - downPos.x) + Math.abs(e.clientY - downPos.y);
   downPos = null;
-  if (moved > 4) return; // đó là drag của OrbitControls, không phải click
+  if (moved > 4) return; // that was an OrbitControls drag, not a click
 
   const rect = renderer.domElement.getBoundingClientRect();
   const ndc = new THREE.Vector2(
@@ -549,11 +577,11 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     return;
   }
   const expressID = (hits[0].object as THREE.Mesh).userData.expressID as number;
-  // ifcAPI đã Dispose sau parse — property đọc từ snapshot đã lưu lúc parse
+  // ifcAPI is disposed after parsing — read properties from the parse-time snapshot
   selectElement(expressID, () => propsSnapshot.get(expressID) ?? { "Type": "?" });
 });
 
-/** Property rút gọn của từng phần tử, lưu lúc parse vì model đóng sau đó. */
+/** Basic properties per element, captured at parse time since the model is closed afterwards. */
 const propsSnapshot = new Map<number, Record<string, string>>();
 
 function snapshotProps(modelID: number, ifcAPI: WebIFC.IfcAPI, expressID: number): void {
@@ -576,7 +604,7 @@ function snapshotProps(modelID: number, ifcAPI: WebIFC.IfcAPI, expressID: number
   if (name) props["Name"] = name;
     const tag = val(line.Tag);
     if (tag) props["Tag"] = tag;
-    // vài property primitive khác nếu có
+    // a few other primitive attributes, if present
     for (const [k, v] of Object.entries(line)) {
       if (["GlobalId", "Name", "Tag", "type", "expressID", "OwnerHistory"].includes(k)) continue;
       const s = val(v);
@@ -584,11 +612,11 @@ function snapshotProps(modelID: number, ifcAPI: WebIFC.IfcAPI, expressID: number
     }
     propsSnapshot.set(expressID, props);
   } catch {
-    // bỏ qua phần tử lỗi
+    // skip elements that fail to read
   }
 }
 
-// snapshot property khi parse: gọi sau StreamAllMeshes cho mỗi element
+// property snapshot: called from buildModel after StreamAllMeshes, for each element
 const collectProps = (modelID: number, ifcAPI: WebIFC.IfcAPI): void => {
   for (const expressID of nodesByElement.keys()) snapshotProps(modelID, ifcAPI, expressID);
 };
@@ -626,8 +654,5 @@ function updateStatusBar(): void {
   statusInfo.textContent = `${projectName} · ${groups} types · ${totalMeshCount} meshes · ${totalTriangles.toLocaleString()} △`;
 }
 
-// lưu props ngay sau parse: nối collectProps vào buildModel qua hook
-// (được gọi trong buildModel sau StreamAllMeshes — xem dưới)
-
-// yêu cầu extension host gửi file
+// ask the extension host to send the model
 vscode.postMessage({ type: "requestModel" });

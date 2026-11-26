@@ -1,5 +1,5 @@
 // Build script: bundle extension + worker + webview, copy wasm files.
-// rvt-wasm (đọc .rvt) được external hoá — bundle ra dist/rvtwasm/ nguyên vẹn.
+// rvt-wasm (the .rvt reader) is externalized — copied as-is to dist/rvtwasm/.
 const esbuild = require("esbuild");
 const fs = require("fs");
 const path = require("path");
@@ -50,8 +50,8 @@ function copyWasm() {
   }
 }
 
-// rvt-wasm (nodejs target) -> dist/rvtwasm/: bundle external nên runtime
-// require("./rvtwasm/rvt.js") sẽ trúng đúng vị trí này.
+// rvt-wasm (nodejs target) -> dist/rvtwasm/: it is external to the bundle, so the
+// runtime require("./rvtwasm/rvt.js") resolves to this location.
 function copyRvtWasm() {
   const srcDir = path.join(__dirname, "vendor", "rvt-wasm");
   const destDir = path.join(__dirname, "dist", "rvtwasm");

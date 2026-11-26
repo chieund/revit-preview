@@ -1,7 +1,7 @@
-// Worker thread: chuyển .rvt → IFC4 bằng rvt-wasm. Chạy trong worker để
-// extension host không bị treo trong thời gian parse (có thể 20-60 giây).
+// Worker thread: converts .rvt → IFC4 with rvt-wasm. Runs off the main thread
+// so the extension host stays responsive during parsing (can take 20-60 s).
 import { parentPort, workerData } from "worker_threads";
-// đường dẫn external hoá với esbuild — resolve runtime tại dist/rvtwasm/
+// externalized in esbuild — resolved at runtime from dist/rvtwasm/
 import * as rvt from "./rvtwasm/rvt.js";
 
 interface WorkerData {
@@ -17,7 +17,7 @@ function report(msg: unknown): void {
 }
 
 try {
-  // kiểm tra phiên bản Revit trước: chỉ đọc metadata, rất nhanh
+  // check the Revit version first: metadata only, very fast
   const meta = rvt.fileMetadata(data.bytes);
   const version = Number(meta.revit_version) || 0;
 

@@ -1,4 +1,4 @@
-// Chạy rvtWorker trong worker thread và trả về chuỗi IFC4 STEP.
+// Runs rvtWorker in a worker thread and returns the IFC4 STEP text.
 import * as path from "path";
 import { Worker } from "worker_threads";
 
@@ -14,9 +14,9 @@ export interface RvtConvertResult {
 }
 
 /**
- * Chuyển bytes .rvt thành IFC4 (chuỗi STEP) trong worker thread.
- * `mode`: "geometry" (đầy đủ) hoặc "scaffold" (chỉ cấu trúc, nhanh).
- * `signal`: abort → dừng worker ngay (vd. người dùng đóng tab giữa chừng).
+ * Converts .rvt bytes to IFC4 (STEP text) in a worker thread.
+ * `mode`: "geometry" (full) or "scaffold" (structure only, fast).
+ * `signal`: abort → terminates the worker immediately (e.g. tab closed mid-way).
  */
 export function convertRvtToIfc(
   bytes: Uint8Array,

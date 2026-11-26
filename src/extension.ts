@@ -4,7 +4,7 @@ import { IfcEditorProvider } from "./ifcEditorProvider";
 export function activate(context: vscode.ExtensionContext): void {
   const common = {
     supportsMultipleEditorsPerDocument: false,
-    // giữ scene khi chuyển tab — không phải parse lại model mỗi lần hiện lại
+    // keep the scene alive when the tab is hidden — no re-parse on every switch
     webviewOptions: { enableFindWidget: false, retainContextWhenHidden: true },
   };
 

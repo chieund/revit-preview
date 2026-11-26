@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.2 — Sửa lỗi nghiêm trọng của 2.0.1
+
+- **Sửa: mọi model báo "IFC parse error: Cannot read properties of undefined (reading 'arguments')"** — bản 2.0.1 gửi dữ liệu dạng Node `Buffer`, bị VS Code serialize thành JSON nên webview nhận về mảng rỗng
+- Webview báo lỗi rõ ràng khi nhận thiếu dữ liệu, thay vì parse dữ liệu hỏng
+- Smoke test giờ chạy đúng code đóng gói message của extension và serialize như VS Code — đã kiểm chứng test bắt được lỗi này
+
 ## 2.0.1 — Sửa lỗi & hiệu năng
 
 - **Sửa: file `.rvt` có thể kẹt mãi ở "Converting…"** — yêu cầu model từ webview bị mất trong lúc đang chuyển đổi; lỗi "Revit quá cũ" cũng có thể không hiện

@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import { convertRvtToIfc } from "./rvtConvert";
+import { buildModelMessages } from "./modelTransfer";
 
-/** Document chỉ đọc: giữ nội dung file dưới dạng bytes (IFC hoặc RVT). */
+/** Read-only document: holds the file contents as bytes (IFC or RVT). */
 export class IfcDocument implements vscode.CustomDocument {
   constructor(readonly uri: vscode.Uri, readonly bytes: Uint8Array) {}
   dispose(): void {
@@ -10,9 +11,9 @@ export class IfcDocument implements vscode.CustomDocument {
 }
 
 /**
- * CustomReadonlyEditorProvider cho cả hai loại file:
- *  - "ifc": gửi thẳng bytes vào webview (web-ifc render)
- *  - "rvt": chuyển .rvt → IFC4 bằng rvt-wasm (worker thread), rồi gửi như .ifc
+ * CustomReadonlyEditorProvider for both file kinds:
+ *  - "ifc": bytes go straight to the webview (rendered by web-ifc)
+ *  - "rvt": converted to IFC4 with rvt-wasm (worker thread), then sent like .ifc
  */
 export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<IfcDocument> {
   public static readonly viewTypeIfc = "revit-preview.ifcViewer";
@@ -38,17 +39,16 @@ export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<If
       localResourceRoots: [mediaRoot],
     };
 
-    // Khung HTML tối giản: toàn bộ UI (toolbar, sidebar, statusbar) được
-    // dựng từ webview/main.ts, style lấy từ webview/styles.ts — giống cách
-    // làm của dwg-previewer.
+    // Minimal HTML shell: the whole UI (toolbar, sidebar, status bar) is built
+    // by webview/main.ts, styles come from webview/styles.ts.
     webviewPanel.webview.html = this.getHtml(webviewPanel.webview);
 
-    // .rvt: khởi động chuyển đổi sang IFC4 (worker thread) ngay, nhưng KHÔNG
-    // chờ ở đây — listener phải đăng ký trước, vì webview gửi "requestModel"
-    // ngay khi tải xong, còn chuyển đổi có thể mất hàng chục giây.
-    // Lỗi được giữ lại và chỉ gửi khi webview đã sẵn sàng (lúc "requestModel"),
-    // vì lỗi phiên bản cũ có thể xảy ra trước khi webview kịp lắng nghe.
-    // đóng tab giữa lúc chuyển đổi → dừng worker (giải phóng tới 4GB heap)
+    // .rvt: start the IFC4 conversion (worker thread) right away but do NOT
+    // await it here — the listener below must be registered first, because the
+    // webview sends "requestModel" as soon as it loads while conversion can take
+    // tens of seconds. Errors are held and only sent once the webview is ready
+    // (on "requestModel"): an old-version error can fire before it listens.
+    // Closing the tab mid-conversion stops the worker (frees up to 4 GB heap).
     const abort = new AbortController();
     webviewPanel.onDidDispose(() => abort.abort());
 
@@ -62,7 +62,7 @@ export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<If
           )
         : Promise.resolve({ bytes: document.bytes });
 
-    // Webview yêu cầu file -> gửi bytes theo chunk (tránh vượt giới hạn 1 message)
+    // Webview asks for the model -> send the bytes in chunks (per-message size limit)
     webviewPanel.webview.onDidReceiveMessage(async (msg) => {
       if (msg.type !== "requestModel") return;
 
@@ -74,26 +74,10 @@ export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<If
       const ifcBytes = converted.bytes;
 
       const fileName = document.uri.path.split("/").pop() ?? "model.ifc";
-      // Gửi binary trực tiếp (VS Code serialize Uint8Array hiệu quả), không
-      // qua base64 — tiết kiệm ~33% kích thước và bước encode/decode.
-      const CHUNK = 16 * 1024 * 1024; // byte mỗi chunk
-      const total = Math.ceil(ifcBytes.byteLength / CHUNK);
-
-      await webviewPanel.webview.postMessage({
-        type: "modelMeta",
-        name: fileName,
-        byteSize: ifcBytes.byteLength,
-        chunks: total,
-      });
-
-      for (let i = 0; i < total; i++) {
-        await webviewPanel.webview.postMessage({
-          type: "modelChunk",
-          data: ifcBytes.subarray(i * CHUNK, (i + 1) * CHUNK),
-        });
+      // raw binary chunks (no base64) — see modelTransfer.ts
+      for (const m of buildModelMessages(fileName, ifcBytes)) {
+        await webviewPanel.webview.postMessage(m);
       }
-
-      await webviewPanel.webview.postMessage({ type: "modelDone" });
     });
   }
 
@@ -101,14 +85,14 @@ export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<If
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "media", "webview.js")
     );
-    // thư mục chứa web-ifc.wasm (webview sẽ fetch từ đây)
+    // folder holding web-ifc.wasm (the webview fetches it from here)
     const wasmDir = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "media")
     ).toString() + "/";
     const nonce = getNonce();
 
-    // 'unsafe-eval' là BẮT BUỘC: web-ifc (emscripten) eval chuỗi JS lúc parse —
-    // bỏ đi thì mọi model đều lỗi (đã kiểm chứng bằng scripts/smoke.js).
+    // 'unsafe-eval' is REQUIRED: web-ifc (emscripten) evaluates JS strings while
+    // parsing — without it every model fails (verified with scripts/smoke.js).
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>

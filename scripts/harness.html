@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- Harness để chạy webview bundle của extension NGOÀI VS Code (giống cách
-     dwg-previewer làm) — dùng cho chụp screenshot marketplace.
-     Mô phỏng acquireVsCodeApi: khi webview xin model, tự gửi chunk từ file IFC. -->
+<!-- Harness that runs the extension's webview bundle OUTSIDE VS Code — used for
+     marketplace screenshots and scripts/smoke.js.
+     Mocks acquireVsCodeApi: when the webview requests the model, it sends chunks. -->
 <html>
 <head>
 <meta charset="utf-8">
-<!-- CSP giống webview thật (src/ifcEditorProvider.ts) — bắt lỗi nếu bundle cần eval -->
+<!-- Same CSP as the real webview (src/ifcEditorProvider.ts) — catches CSP regressions -->
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'unsafe-eval' blob:;
                style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:;
@@ -25,11 +25,24 @@
       return {
         postMessage(msg) {
           if (msg.type === "requestModel") {
-            const file = new URLSearchParams(location.search).get("file") || "/samples/AC20-FZK-Haus.ifc";
+            const params = new URLSearchParams(location.search);
+            // smoke test: messages pre-built by the extension host's own code,
+            // serialized like VS Code does ({$$bin: base64} = binary)
+            if (params.get("messages")) {
+              fetch(params.get("messages"))
+                .then((r) => r.text())
+                .then((text) => {
+                  const bin = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+                  const msgs = JSON.parse(text, (_k, v) => (v && typeof v.$$bin === "string" ? bin(v.$$bin) : v));
+                  msgs.forEach(dispatch);
+                });
+              return;
+            }
+            const file = params.get("file") || "/samples/AC20-FZK-Haus.ifc";
             fetch(file)
               .then((r) => r.arrayBuffer())
               .then((buf) => {
-                // giống extension host: gửi Uint8Array theo chunk 16MB
+                // like the extension host: Uint8Array chunks of 16 MB
                 const bytes = new Uint8Array(buf);
                 const CHUNK = 16 * 1024 * 1024;
                 const total = Math.ceil(bytes.length / CHUNK);

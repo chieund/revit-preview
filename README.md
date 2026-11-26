@@ -1,6 +1,6 @@
 # Revit Viewer — open Revit & IFC models in VS Code
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue)](https://marketplace.visualstudio.com/items?itemName=bumkom.revit-preview)
+[![Version](https://img.shields.io/badge/version-2.0.1-blue)](https://marketplace.visualstudio.com/items?itemName=bumkom.revit-preview)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **Open Revit models in 3D, right inside VS Code.** Double-click a `.rvt` file (read directly — no Revit install required) or an `.ifc` file exported from Autodesk Revit, and explore the building interactively: orbit, zoom, hide element types, click any wall, slab or door to read its properties. No cloud upload, no plugins.
@@ -60,6 +60,7 @@ npm install
 npm run compile     # build dist/ + media/ (esbuild)
 npm run watch       # rebuild on change
 npm run typecheck   # tsc --noEmit
+npm run smoke       # end-to-end test on samples/ (.rvt → IFC → real viewer, headless)
 ```
 
 Debug: press **F5** to launch the Extension Development Host, then open a `.ifc` file.

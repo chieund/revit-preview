@@ -2,7 +2,7 @@
   "name": "revit-preview",
   "displayName": "Revit Viewer",
   "description": "Open Revit models in 3D inside VS Code — directly from .rvt (Revit 2023–2025) or .ifc. Orbit, zoom, filter element types, click any element to inspect its properties. Fully local, no Revit install needed.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "publisher": "bumkom",
   "license": "MIT",
   "icon": "icon.png",
@@ -32,6 +32,7 @@
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "typecheck": "tsc --noEmit",
+    "smoke": "node esbuild.js && node scripts/smoke.js",
     "package": "vsce package"
   },
   "contributes": {

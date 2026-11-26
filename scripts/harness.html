@@ -5,6 +5,11 @@
 <html>
 <head>
 <meta charset="utf-8">
+<!-- CSP giống webview thật (src/ifcEditorProvider.ts) — bắt lỗi nếu bundle cần eval -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'unsafe-eval' blob:;
+               style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:;
+               worker-src 'self' blob:; connect-src 'self';">
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1e1e1e; }
   #root { width: 100%; height: 100%; }
@@ -20,21 +25,17 @@
       return {
         postMessage(msg) {
           if (msg.type === "requestModel") {
-            fetch("/samples/AC20-FZK-Haus.ifc")
+            const file = new URLSearchParams(location.search).get("file") || "/samples/AC20-FZK-Haus.ifc";
+            fetch(file)
               .then((r) => r.arrayBuffer())
               .then((buf) => {
+                // giống extension host: gửi Uint8Array theo chunk 16MB
                 const bytes = new Uint8Array(buf);
-                let bin = "";
-                const SLICE = 0x8000;
-                for (let i = 0; i < bytes.length; i += SLICE) {
-                  bin += String.fromCharCode.apply(null, bytes.subarray(i, i + SLICE));
-                }
-                const b64 = btoa(bin);
-                const CHUNK = 3000000;
-                const total = Math.ceil(b64.length / CHUNK);
-                dispatch({ type: "modelMeta", name: "AC20-FZK-Haus.ifc", byteSize: bytes.byteLength, chunks: total });
+                const CHUNK = 16 * 1024 * 1024;
+                const total = Math.ceil(bytes.length / CHUNK);
+                dispatch({ type: "modelMeta", name: file.split("/").pop(), byteSize: bytes.byteLength, chunks: total });
                 for (let i = 0; i < total; i++) {
-                  dispatch({ type: "modelChunk", data: b64.slice(i * CHUNK, (i + 1) * CHUNK) });
+                  dispatch({ type: "modelChunk", data: bytes.slice(i * CHUNK, (i + 1) * CHUNK) });
                 }
                 dispatch({ type: "modelDone" });
               });

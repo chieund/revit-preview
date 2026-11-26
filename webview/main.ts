@@ -24,7 +24,7 @@ root.innerHTML = `
     <button class="ifc-tool-button" id="btn-elements" title="Element list by type">▦ Elements</button>
     <div class="ifc-banner" hidden>
       <span class="ifc-banner-text"></span>
-      <button class="ifc-banner-dismiss" title="Đóng">✕</button>
+      <button class="ifc-banner-dismiss" title="Dismiss">✕</button>
     </div>
   </div>
   <div class="ifc-workspace">
@@ -174,7 +174,9 @@ window.addEventListener("message", async (event) => {
     }
     case "modelChunk": {
       if (!modelBuffer) break;
-      const bytes = base64ToBytes(msg.data);
+      // extension host gửi Uint8Array; vẫn nhận base64 string (định dạng cũ)
+      const bytes: Uint8Array =
+        typeof msg.data === "string" ? base64ToBytes(msg.data) : new Uint8Array(msg.data);
       modelBuffer.set(bytes, writeOffset);
       writeOffset += bytes.length;
       received++;
@@ -198,6 +200,25 @@ window.addEventListener("message", async (event) => {
 });
 
 // ---------- parse IFC + dựng scene ----------
+/**
+ * Dùng chung material theo màu + opacity: model vài nghìn phần tử chỉ có vài
+ * chục màu, nên tránh tạo hàng nghìn material (shader state, bộ nhớ GPU).
+ */
+const materialCache = new Map<string, THREE.MeshLambertMaterial>();
+function materialFor(r: number, g: number, b: number, a: number): THREE.MeshLambertMaterial {
+  const key = `${r.toFixed(3)},${g.toFixed(3)},${b.toFixed(3)},${a.toFixed(3)}`;
+  let m = materialCache.get(key);
+  if (!m) {
+    m = new THREE.MeshLambertMaterial({
+      color: new THREE.Color(r, g, b),
+      transparent: a < 1,
+      opacity: a,
+      side: THREE.DoubleSide,
+    });
+    materialCache.set(key, m);
+  }
+  return m;
+}
 interface TypeGroup {
   typeCode: number;
   label: string;
@@ -264,7 +285,7 @@ function groupOf(typeCode: number, ifcAPI: WebIFC.IfcAPI): TypeGroup {
   return g;
 }
 
-let projectName = "(không rõ)";
+let projectName = "(unnamed project)";
 let totalMeshCount = 0;
 let totalTriangles = 0;
 
@@ -284,7 +305,7 @@ async function buildModel(buffer: Uint8Array): Promise<void> {
     const projIds = ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCPROJECT);
     if (projIds.size() > 0) {
       const proj = ifcAPI.GetLine(modelID, projIds.get(0));
-      projectName = proj.Name?.value ?? proj.LongName?.value ?? "(không rõ)";
+      projectName = proj.Name?.value ?? proj.LongName?.value ?? "(unnamed project)";
     }
   } catch {
     // bỏ qua
@@ -303,27 +324,17 @@ async function buildModel(buffer: Uint8Array): Promise<void> {
       const verts = ifcAPI.GetVertexArray(geom.GetVertexData(), geom.GetVertexDataSize());
       const idx = ifcAPI.GetIndexArray(geom.GetIndexData(), geom.GetIndexDataSize());
 
-      // vertex buffer của web-ifc: [x,y,z,nx,ny,nz] * n
-      const positions = new Float32Array((verts.length / 6) * 3);
-      for (let v = 0, j = 0; v < verts.length; v += 6, j += 3) {
-        positions[j] = verts[v];
-        positions[j + 1] = verts[v + 1];
-        positions[j + 2] = verts[v + 2];
-      }
-
+      // vertex buffer của web-ifc: [x,y,z,nx,ny,nz] * n — dùng luôn normal
+      // có sẵn (giữ cạnh sắc), không computeVertexNormals() lại
+      const interleaved = new THREE.InterleavedBuffer(new Float32Array(verts), 6);
       const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute("position", new THREE.InterleavedBufferAttribute(interleaved, 3, 0));
+      geometry.setAttribute("normal", new THREE.InterleavedBufferAttribute(interleaved, 3, 3));
       geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
-      geometry.computeVertexNormals();
 
       const c = placedGeom.color ?? { x: 0.8, y: 0.8, z: 0.8, w: 1 };
       const meshColor = new THREE.Color(c.x, c.y, c.z);
-      const material = new THREE.MeshLambertMaterial({
-        color: meshColor,
-        transparent: c.w < 1,
-        opacity: c.w,
-        side: THREE.DoubleSide,
-      });
+      const material = materialFor(c.x, c.y, c.z, c.w);
 
       const node = new THREE.Mesh(geometry, material);
       node.applyMatrix4(new THREE.Matrix4().fromArray(placedGeom.flatTransformation));
@@ -589,11 +600,7 @@ const wireframeButton = document.getElementById("btn-wireframe") as HTMLButtonEl
 wireframeButton?.addEventListener("click", () => {
   const on = !wireframeButton.classList.contains("ifc-active");
   wireframeButton.classList.toggle("ifc-active", on);
-  for (const g of typeGroups.values()) {
-    for (const node of g.nodes) {
-      (node.material as THREE.MeshLambertMaterial).wireframe = on;
-    }
-  }
+  for (const m of materialCache.values()) m.wireframe = on;
   highlightMaterial.wireframe = on;
 });
 

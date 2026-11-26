@@ -48,11 +48,15 @@ export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<If
     // ngay khi tải xong, còn chuyển đổi có thể mất hàng chục giây.
     // Lỗi được giữ lại và chỉ gửi khi webview đã sẵn sàng (lúc "requestModel"),
     // vì lỗi phiên bản cũ có thể xảy ra trước khi webview kịp lắng nghe.
+    // đóng tab giữa lúc chuyển đổi → dừng worker (giải phóng tới 4GB heap)
+    const abort = new AbortController();
+    webviewPanel.onDidDispose(() => abort.abort());
+
     const ifcBytesPromise: Promise<{ bytes: Uint8Array } | { error: string }> =
       this.kind === "rvt"
         ? convertRvtToIfc(document.bytes, "geometry", (p) => {
             void webviewPanel.webview.postMessage({ type: "convertProgress", ...p });
-          }).then(
+          }, abort.signal).then(
             (result) => ({ bytes: Buffer.from(result.step, "utf8") }),
             (e: unknown) => ({ error: e instanceof Error ? e.message : String(e) })
           )
@@ -70,9 +74,10 @@ export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<If
       const ifcBytes = converted.bytes;
 
       const fileName = document.uri.path.split("/").pop() ?? "model.ifc";
-      const b64 = Buffer.from(ifcBytes).toString("base64");
-      const CHUNK = 3_000_000; // ký tự base64 mỗi chunk (~2.2 MB nhị phân)
-      const total = Math.ceil(b64.length / CHUNK);
+      // Gửi binary trực tiếp (VS Code serialize Uint8Array hiệu quả), không
+      // qua base64 — tiết kiệm ~33% kích thước và bước encode/decode.
+      const CHUNK = 16 * 1024 * 1024; // byte mỗi chunk
+      const total = Math.ceil(ifcBytes.byteLength / CHUNK);
 
       await webviewPanel.webview.postMessage({
         type: "modelMeta",
@@ -84,7 +89,7 @@ export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<If
       for (let i = 0; i < total; i++) {
         await webviewPanel.webview.postMessage({
           type: "modelChunk",
-          data: b64.slice(i * CHUNK, (i + 1) * CHUNK),
+          data: ifcBytes.subarray(i * CHUNK, (i + 1) * CHUNK),
         });
       }
 
@@ -102,6 +107,8 @@ export class IfcEditorProvider implements vscode.CustomReadonlyEditorProvider<If
     ).toString() + "/";
     const nonce = getNonce();
 
+    // 'unsafe-eval' là BẮT BUỘC: web-ifc (emscripten) eval chuỗi JS lúc parse —
+    // bỏ đi thì mọi model đều lỗi (đã kiểm chứng bằng scripts/smoke.js).
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>

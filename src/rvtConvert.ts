@@ -16,18 +16,33 @@ export interface RvtConvertResult {
 /**
  * Chuyển bytes .rvt thành IFC4 (chuỗi STEP) trong worker thread.
  * `mode`: "geometry" (đầy đủ) hoặc "scaffold" (chỉ cấu trúc, nhanh).
+ * `signal`: abort → dừng worker ngay (vd. người dùng đóng tab giữa chừng).
  */
 export function convertRvtToIfc(
   bytes: Uint8Array,
   mode: "scaffold" | "typed-no-geometry" | "geometry" | "strict",
-  onProgress: (p: RvtConvertProgress) => void
+  onProgress: (p: RvtConvertProgress) => void,
+  signal?: AbortSignal
 ): Promise<RvtConvertResult> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("RVT conversion cancelled"));
+      return;
+    }
     const workerPath = path.join(__dirname, "worker-rvt.js");
     const worker = new Worker(workerPath, {
       workerData: { bytes: Buffer.from(bytes), mode, largeModel: false },
       resourceLimits: { maxOldGenerationSizeMb: 4096 },
     });
+
+    signal?.addEventListener(
+      "abort",
+      () => {
+        reject(new Error("RVT conversion cancelled"));
+        void worker.terminate();
+      },
+      { once: true }
+    );
 
     worker.on("message", (msg: { type: string } & Record<string, unknown>) => {
       switch (msg.type) {
